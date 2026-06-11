@@ -74,20 +74,27 @@
 
   <!-- ============================ MISSION CONTROL ============================ -->
   <section class="tab-pane" id="tab-mission">
-    <div class="pane-grid">
-      <aside class="sidebar">
-        <div class="panel-head">
-          <h2>Projects</h2>
-          <button id="toggle-new-project" class="link">+ New</button>
-        </div>
-        <div id="projects-list" class="projects">
-          <div class="empty-note">No projects yet. Create one to begin.</div>
-        </div>
-      </aside>
+    <div id="mission-home" class="mission-view">
+      <div class="mission-home-head">
+        <h2>Projects</h2>
+        <button id="toggle-new-project" class="link" type="button">+ New project</button>
+      </div>
+      <div id="project-tiles" class="project-tiles">
+        <div class="empty-note">No projects yet. Create one to begin.</div>
+      </div>
+    </div>
 
-      <div class="content">
-        <div class="panel-head">
+    <div id="mission-project" class="mission-view hidden">
+      <div class="mission-project-nav">
+        <button id="mission-back" type="button" class="ghost mission-back">← Back to projects</button>
+      </div>
+      <div class="mission-project-panel">
+        <div class="panel-head mission-project-head">
           <h2>Sprint board <span id="board-slug" class="muted mono"></span></h2>
+          <div class="mission-project-actions">
+            <button id="mission-edit-project" class="link" type="button">Edit</button>
+            <button id="mission-delete-project" class="link pc-del" type="button">Delete</button>
+          </div>
         </div>
         <div id="iteration-bar" class="iteration-bar hidden">
           <div class="iteration-left">
@@ -113,14 +120,14 @@
   <section class="tab-pane hidden" id="tab-operations">
     <div class="control-bar">
       <div class="cb-left">
-        <label class="cb-label">Project</label>
-        <select id="project-select" title="project to orchestrate"></select>
+        <span class="cb-label">Project</span>
+        <span id="ops-project-name" class="tab-project-context muted">None selected</span>
         <button id="plan-orchestrate" class="primary" title="Use the LLM planner to sequence Todo tasks, then orchestrate">✦ Plan &amp; Orchestrate</button>
         <button id="orchestrate" class="ghost" title="Orchestrate using the existing plan / FIFO order">▶ Orchestrate</button>
         <button id="stop" class="danger hidden">■ Stop</button>
       </div>
       <div class="cb-right">
-        <span id="orch-banner" class="banner idle">Idle — select a project and click Orchestrate.</span>
+        <span id="orch-banner" class="banner idle">Idle — open a project in Mission Control first.</span>
       </div>
     </div>
 
@@ -176,12 +183,12 @@
   <section class="tab-pane hidden" id="tab-artifacts">
     <div class="control-bar">
       <div class="cb-left">
-        <label class="cb-label">Project</label>
-        <select id="art-project" title="project workspace"></select>
+        <span class="cb-label">Project</span>
+        <span id="art-project-name" class="tab-project-context muted">None selected</span>
         <button id="art-refresh" class="ghost">Refresh files</button>
       </div>
       <div class="cb-right">
-        <span class="banner idle" id="art-banner">Select a project to browse files agents created in its workspace.</span>
+        <span class="banner idle" id="art-banner">Open a project in Mission Control to browse its workspace files.</span>
       </div>
     </div>
     <div class="art-workspace">
@@ -236,12 +243,12 @@
   <section class="tab-pane hidden" id="tab-git">
     <div class="control-bar">
       <div class="cb-left">
-        <label class="cb-label">Project</label>
-        <select id="git-project" title="project repository"></select>
+        <span class="cb-label">Project</span>
+        <span id="git-project-name" class="tab-project-context muted">None selected</span>
         <button id="git-refresh" class="ghost">Refresh commits</button>
       </div>
       <div class="cb-right">
-        <span class="banner idle" id="git-banner">Select a project to view commits made after each sprint.</span>
+        <span class="banner idle" id="git-banner">Open a project in Mission Control to view sprint commits.</span>
       </div>
     </div>
     <main class="ops-main">

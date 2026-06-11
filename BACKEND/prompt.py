@@ -21,7 +21,7 @@ _env = Environment(undefined=StrictUndefined, autoescape=False)
 def render_prompt(template: str, issue: Issue, attempt: Optional[int]) -> str:
     """Strictly render the workflow prompt body (SPEC 5.4 / 12.2)."""
     if not template.strip():
-        return "You are working on an issue from Linear."
+        return "You are working on a task in this project."
     try:
         compiled = _env.from_string(template)
     except JinjaTemplateError as exc:

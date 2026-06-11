@@ -11,13 +11,6 @@ from workflow import WorkflowDefinition, WorkflowError, load_workflow
 log = get_logger("orch.config")
 
 
-def _resolve_env(value):
-    """Resolve a single $VAR_NAME indirection; empty result is treated as missing."""
-    if isinstance(value, str) and value.startswith("$"):
-        return os.environ.get(value[1:], "")
-    return value
-
-
 def _as_int(value, default: int) -> int:
     try:
         return int(value)
@@ -39,26 +32,6 @@ class Config:
         return section if isinstance(section, dict) else {}
 
     # --- tracker ---
-    def tracker_kind(self) -> str:
-        return str(self._section("tracker").get("kind") or "").strip().lower()
-
-    def tracker_endpoint(self) -> str:
-        return str(
-            self._section("tracker").get("endpoint")
-            or "https://api.linear.app/graphql"
-        )
-
-    def tracker_api_key(self) -> Optional[str]:
-        raw = self._section("tracker").get("api_key")
-        resolved = _resolve_env(raw)
-        resolved = (resolved or "").strip()
-        return resolved or None
-
-    def tracker_project_slug(self) -> Optional[str]:
-        slug = self._section("tracker").get("project_slug")
-        slug = (str(slug).strip() if slug is not None else "")
-        return slug or None
-
     def required_labels(self) -> list[str]:
         labels = self._section("tracker").get("required_labels") or []
         if not isinstance(labels, list):
@@ -155,16 +128,6 @@ class Config:
     # --- validation (SPEC 6.3 dispatch preflight) ---
     def validate_for_dispatch(self) -> list[str]:
         errors: list[str] = []
-        kind = self.tracker_kind()
-        if not kind:
-            errors.append("tracker.kind is required")
-        elif kind not in ("linear", "local"):
-            errors.append(f"unsupported tracker.kind: {kind}")
-        if kind == "linear":
-            if not self.tracker_api_key():
-                errors.append("tracker.api_key is missing (after $VAR resolution)")
-            if not self.tracker_project_slug():
-                errors.append("tracker.project_slug is required for linear")
         if not self.codex_command().strip():
             errors.append("codex.command is empty")
         return errors

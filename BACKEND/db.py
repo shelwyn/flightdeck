@@ -169,7 +169,7 @@ class Db:
                     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
                 );
                 -- Orchestrator data: one row per dispatch/attempt (run), with token + runtime usage.
-                -- No FK on task_id so this also works for the Linear backend.
+                -- No FK on task_id so QA runs can omit a task row.
                 CREATE TABLE IF NOT EXISTS runs (
                     id TEXT PRIMARY KEY,
                     task_id TEXT,
@@ -370,7 +370,7 @@ class Db:
                 raise DbError(f"unknown project: {slug}")
             # FK cascade (PRAGMA foreign_keys=ON) removes the project's tasks + comments.
             conn.execute("DELETE FROM projects WHERE slug = ?", (slug,))
-            # runs has no FK (Linear-compatible), so remove its rows explicitly.
+            # runs has no FK on task_id, so remove its rows explicitly.
             conn.execute("DELETE FROM runs WHERE project_slug = ?", (slug,))
 
     def list_projects(self) -> list[dict]:

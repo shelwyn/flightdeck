@@ -20,7 +20,6 @@ from db import (
     STATE_IN_PROGRESS,
     STATE_TODO,
 )
-from linear_client import LinearClient
 from local_tracker import LocalTracker
 from model_settings import ModelSettings
 from pi_models import list_pi_models, pi_subprocess_env
@@ -139,20 +138,8 @@ class Orchestrator:
             log.warning("could not clean up orphaned runs: %s", exc)
         self._maybe_start_server()
 
-        if config.tracker_kind() == "linear":
-            # Linear runs headlessly on launch (no project picker).
-            self.tracker = LinearClient(
-                config.tracker_endpoint(), config.tracker_api_key(), config.tracker_project_slug()
-            )
-            self.active_project_slug = config.tracker_project_slug()
-            self.orchestrating = True
-            self._startup_terminal_cleanup()
-            self._events.put(("tick",))
-            log.info("orchestrator started (linear) %s", kv(workflow=str(self.cm.path)))
-        else:
-            # Local tracker: idle until a project is selected via the dashboard.
-            self.reconcile_stuck_iterations()
-            log.info("orchestrator started (local, idle) %s", kv(workflow=str(self.cm.path)))
+        self.reconcile_stuck_iterations()
+        log.info("orchestrator started (idle) %s", kv(workflow=str(self.cm.path)))
 
         threading.Thread(target=self._ticker, daemon=True).start()
 
@@ -265,8 +252,6 @@ class Orchestrator:
         threading.Thread(target=_work, daemon=True).start()
 
     def plan_project(self, project_slug: str, iteration_id: str) -> None:
-        if not self._is_local():
-            return
         if not self.db.get_project(project_slug):
             log.error("plan failed: unknown project %s", project_slug)
             return
@@ -333,7 +318,7 @@ class Orchestrator:
 
     def reconcile_stuck_iterations(self) -> None:
         """While idle, iterations must not stay running/testing in the database."""
-        if self.orchestrating or self.planning or not self._is_local():
+        if self.orchestrating or self.planning:
             return
         from db import ITERATION_PLANNING, ITERATION_RUNNING, ITERATION_TESTING
 
@@ -344,9 +329,6 @@ class Orchestrator:
             else:
                 self.db.set_iteration_state(iteration_id, ITERATION_PLANNING)
             log.info("reconciled stuck iteration %s", kv(iteration=iteration_id))
-
-    def _is_local(self) -> bool:
-        return self.cm.current.tracker_kind() == "local"
 
     def remove_project_workspace(self, project_slug: str) -> None:
         """Best-effort removal of the default WORKSPACES/<slug>/ folder on project delete.
@@ -770,9 +752,6 @@ class Orchestrator:
         if generation is not None and generation != self._orchestrate_generation:
             log.info("orchestrate ignored after stop %s", kv(project=project_slug, iteration=iteration_id))
             return
-        if not self._is_local():
-            log.warning("orchestrate ignored: tracker kind is not local")
-            return
         if not self.db.get_project(project_slug):
             log.error("orchestrate failed: unknown project %s", project_slug)
             return
@@ -874,24 +853,6 @@ class Orchestrator:
         self.state.retry_attempts.clear()
         self.state.claimed.clear()
 
-    def _startup_terminal_cleanup(self) -> None:
-        if not self.tracker:
-            return
-        config = self.cm.current
-        from workspace import WorkspaceManager
-
-        workspaces = WorkspaceManager(lambda: self.cm.current)
-        try:
-            issues = self.tracker.fetch_issues_by_states(config.terminal_states())
-        except TrackerError as exc:
-            log.warning("startup terminal cleanup fetch failed: %s", exc)
-            return
-        for issue in issues:
-            try:
-                workspaces.cleanup_for_issue(issue.identifier, self.active_project_slug)
-            except Exception as exc:
-                log.warning("cleanup failed for %s: %s", issue.identifier, exc)
-
     # --- tick / dispatch ---
     def _on_tick(self) -> None:
         if not self.orchestrating or not self.tracker:
@@ -932,9 +893,8 @@ class Orchestrator:
         return sorted(issues, key=key)
 
     def _available_global_slots(self) -> int:
-        # The built-in tracker shares one project workspace, so agents must run
-        # one at a time to avoid clobbering each other's files.
-        limit = 1 if self._is_local() else self.cm.current.max_concurrent_agents()
+        # Agents share one project workspace, so run one at a time.
+        limit = 1
         return max(limit - len(self.state.running), 0)
 
     def _state_slot_available(self, state_name: str) -> bool:
@@ -981,7 +941,6 @@ class Orchestrator:
         if not client:
             return
         config = self.cm.current
-        local = self._is_local()
         from workspace import WorkspaceManager
 
         workspaces = WorkspaceManager(lambda: self.cm.current)
@@ -992,7 +951,7 @@ class Orchestrator:
         def emit_exit(reason: str, error, verdict=None, issue_id=issue.id):
             self._events.put(("worker_exit", issue_id, reason, error, verdict))
 
-        project_slug = self.active_project_slug if local else config.tracker_project_slug()
+        project_slug = self.active_project_slug
         run_id: Optional[str] = None
         try:
             run_id = self.db.create_run(
@@ -1016,16 +975,16 @@ class Orchestrator:
             issue=issue,
             attempt=attempt,
             config=config,
-            linear=client,
+            tracker=client,
             workspaces=workspaces,
             emit_update=emit_update,
             emit_exit=emit_exit,
-            project_slug=self.active_project_slug if local else None,
+            project_slug=self.active_project_slug,
             project_workspace_path=self._project_workspace_path(self.active_project_slug)
-            if local and self.active_project_slug
+            if self.active_project_slug
             else None,
-            single_turn=local,
-            shared_workspace=local,
+            single_turn=True,
+            shared_workspace=True,
             pi_command=self.pi_command(),
             model_ref=self.pi_model_ref(),
             session_id=session_id,
@@ -1040,7 +999,7 @@ class Orchestrator:
             last_activity_monotonic=time.monotonic(),
             run_id=run_id,
         )
-        if local and self.active_project_slug:
+        if self.active_project_slug:
             ws_path = workspaces.project_dir(
                 self.active_project_slug,
                 self._project_workspace_path(self.active_project_slug),
@@ -1053,12 +1012,11 @@ class Orchestrator:
         worker.start()
         log.info("dispatch %s", kv(issue_id=issue.id, issue_identifier=issue.identifier, attempt=attempt))
 
-        if local:
-            try:
-                client.set_issue_state(issue.id, STATE_IN_PROGRESS)
-                entry.issue.state = STATE_IN_PROGRESS
-            except TrackerError as exc:
-                log.warning("could not update board state for %s: %s", issue.identifier, exc)
+        try:
+            client.set_issue_state(issue.id, STATE_IN_PROGRESS)
+            entry.issue.state = STATE_IN_PROGRESS
+        except TrackerError as exc:
+            log.warning("could not update board state for %s: %s", issue.identifier, exc)
         if config.comment_on_start():
             self._safe_comment(client, issue.id, "Flight Deck started working on this issue.")
 
@@ -1122,17 +1080,6 @@ class Orchestrator:
             "terminate running %s",
             kv(issue_identifier=entry.identifier, cleanup=cleanup_workspace),
         )
-        # The built-in tracker keeps agent output (browsable in the Artifacts tab);
-        # only the ephemeral Linear backend cleans up its per-issue workspace.
-        if cleanup_workspace and not self._is_local():
-            from workspace import WorkspaceManager
-
-            try:
-                WorkspaceManager(lambda: self.cm.current).cleanup_for_issue(
-                    entry.identifier, self.active_project_slug
-                )
-            except Exception as exc:
-                log.warning("workspace cleanup failed for %s: %s", entry.identifier, exc)
         if release:
             self.state.claimed.discard(issue_id)
 
@@ -1192,19 +1139,11 @@ class Orchestrator:
                 verdict=(verdict or {}).get("status"),
             ),
         )
-        client = self.tracker
         if reason == "normal":
             if entry.is_testing:
                 self._on_testing_finish(entry, verdict)
-            elif self._is_local():
-                self._on_local_finish(entry, verdict)
             else:
-                self.state.completed.add(issue_id)
-                if client and self.cm.current.comment_on_finish():
-                    self._safe_comment(client, issue_id, "Flight Deck finished a work session on this issue.")
-                # Linear: re-check shortly in case more work remains.
-                self._finalize_run(entry, "normal")
-                self._schedule_retry(issue_id, 1, entry.identifier, continuation=True)
+                self._on_local_finish(entry, verdict)
         elif reason == "canceled":
             self._finalize_run(entry, "canceled")
             self.state.claimed.discard(issue_id)
@@ -1477,7 +1416,7 @@ class Orchestrator:
             self.testing_status = "standby"
 
     def _maybe_dispatch_testing(self) -> None:
-        if not self._is_local() or not self.orchestrating or self._skip_testing_for_run:
+        if not self.orchestrating or self._skip_testing_for_run:
             return
         if not self.active_iteration_id or not self.active_project_slug:
             return
@@ -1555,7 +1494,7 @@ class Orchestrator:
             issue=issue,
             attempt=None,
             config=config,
-            linear=client,
+            tracker=client,
             workspaces=workspaces,
             emit_update=emit_update,
             emit_exit=emit_exit,
@@ -1674,7 +1613,7 @@ class Orchestrator:
         self._events.put(("tick",))
 
     def _maybe_sprint_commit(self) -> None:
-        if not (self.orchestrating and self._is_local()):
+        if not self.orchestrating:
             return
         slug = self.active_project_slug
         if not slug or not self.db.project_needs_git(slug):
@@ -1819,7 +1758,6 @@ class Orchestrator:
         retrying = list(self.state.retry_attempts.values())
         result = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "tracker_kind": self.cm.current.tracker_kind(),
             "orchestrating": self.orchestrating,
             "planning": self.planning,
             "planning_project": self.planning_project_slug,

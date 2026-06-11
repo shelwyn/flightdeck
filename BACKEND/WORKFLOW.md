@@ -1,10 +1,5 @@
 ---
 tracker:
-  # kind: local  -> built-in tracker (projects/tasks in SQLite, picked from the dashboard).
-  # kind: linear -> external Linear (set api_key + project_slug below).
-  kind: local
-  api_key: $LINEAR_API_KEY
-  project_slug: ""
   required_labels: []
   active_states: [Todo, In Progress]
   terminal_states: [Completed, Cancelled]

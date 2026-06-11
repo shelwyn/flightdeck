@@ -83,7 +83,7 @@ class AgentWorker:
         issue: Issue,
         attempt: Optional[int],
         config: Config,
-        linear,
+        tracker,
         workspaces: WorkspaceManager,
         emit_update: Callable[[dict], None],
         emit_exit: Callable[..., None],
@@ -103,7 +103,7 @@ class AgentWorker:
         self.model_ref = (model_ref or "").strip() or None
         self.session_id = (session_id or "").strip() or sanitize_key(issue.identifier)
         self.custom_prompt = (custom_prompt or "").strip() or None
-        self.linear = linear
+        self.tracker = tracker
         self.workspaces = workspaces
         self.emit_update = emit_update
         self.emit_exit = emit_exit
@@ -240,7 +240,7 @@ class AgentWorker:
                     break
 
                 try:
-                    refreshed = self.linear.fetch_issue_states_by_ids([self.issue.id])
+                    refreshed = self.tracker.fetch_issue_states_by_ids([self.issue.id])
                 except TrackerError as exc:
                     return self._finish(workspace, "failed", f"state refresh: {exc}")
                 if refreshed:

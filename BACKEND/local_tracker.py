@@ -29,10 +29,7 @@ def _to_issue(row: dict) -> Issue:
 
 
 class LocalTracker:
-    """Tracker backend over the built-in SQLite store, scoped to one project.
-
-    Implements the same surface the orchestrator uses for LinearClient.
-    """
+    """Tracker backend over the built-in SQLite store, scoped to one project."""
 
     def __init__(self, db: Db, project_slug: str, iteration_id: str | None = None):
         self.db = db

@@ -15,7 +15,6 @@ let editingSlug = null;       // non-null while the project form is in edit mode
 let editingTaskId = null;     // non-null while the task form is in edit mode
 let draggingTaskId = null;    // task id being dragged on the sprint board
 let draggingFrom = null;      // its source column (state)
-let artifactProject = null;   // Artifacts tab: selected project slug
 let artifactFile = null;      // Artifacts tab: selected file path
 let artifactOriginal = "";    // content when file was opened / last saved
 let artifactEditing = false;
@@ -344,8 +343,65 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".tab-pane").forEach((p) => p.classList.toggle("hidden", p.id !== "tab-" + name));
   document.body.classList.toggle("tab-artifacts-active", name === "artifacts");
-  if (name === "artifacts") loadArtifactProjects();
-  if (name === "git") loadGitProjects();
+  if (name === "mission") syncMissionView();
+  if (name === "operations") { poll(); loadRuns(); }
+  if (name === "artifacts") refreshArtifacts();
+  if (name === "git") refreshGitHistory();
+}
+
+function setMissionView(view) {
+  $("mission-home").classList.toggle("hidden", view !== "home");
+  $("mission-project").classList.toggle("hidden", view !== "project");
+}
+
+function syncMissionView() {
+  if (selectedProject && projectsCache.some((p) => p.slug === selectedProject)) {
+    setMissionView("project");
+  } else {
+    setMissionView("home");
+  }
+}
+
+function showMissionHome() {
+  selectedProject = null;
+  selectedIteration = null;
+  iterationsCache = [];
+  $("board-slug").textContent = "";
+  $("iteration-bar").classList.add("hidden");
+  updateIterationActions();
+  setMissionView("home");
+  loadBoard();
+  onProjectContextChanged();
+}
+
+function currentProject() {
+  return projectsCache.find((p) => p.slug === selectedProject) || null;
+}
+
+function projectLabel(slug) {
+  const proj = projectsCache.find((p) => p.slug === slug);
+  return proj ? `${proj.title} (${proj.slug})` : slug || "None selected";
+}
+
+function updateTabProjectLabels() {
+  const slug = selectedProject;
+  const label = projectLabel(slug);
+  for (const id of ["ops-project-name", "art-project-name", "git-project-name"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.textContent = slug ? label : "None selected";
+    el.classList.toggle("active", !!slug);
+    el.classList.toggle("muted", !slug);
+  }
+}
+
+function onProjectContextChanged() {
+  updateTabProjectLabels();
+  runsPage = 0;
+  loadRuns();
+  refreshArtifacts();
+  refreshGitHistory();
+  poll();
 }
 
 // --- projects (Mission Control) ---
@@ -363,42 +419,24 @@ async function loadProjects() {
     if (!anyGit && gitTabBtn.classList.contains("active")) switchTab("mission");
   }
 
-  // Operations dropdown
-  const select = $("project-select");
-  const prev = select.value;
-  select.replaceChildren();
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = projects.length ? "Select Project" : "No projects yet";
-  select.appendChild(placeholder);
-  for (const p of projects) {
-    const opt = document.createElement("option");
-    opt.value = p.slug;
-    opt.textContent = `${p.title} (${p.slug})`;
-    select.appendChild(opt);
-  }
-  if (prev && projects.some((p) => p.slug === prev)) select.value = prev;
-  else if (activeProject && projects.some((p) => p.slug === activeProject)) select.value = activeProject;
-  else select.value = "";
-  syncProjectSelectLock();
-
-  // Mission Control project list
-  const list = $("projects-list");
+  updateTabProjectLabels();
+  // Mission Control project tiles (home)
+  const list = $("project-tiles");
   list.replaceChildren();
   if (!projects.length) {
     const n = document.createElement("div");
     n.className = "empty-note";
     n.textContent = "No projects yet. Create one to begin.";
     list.appendChild(n);
+    if (!selectedProject) setMissionView("home");
     return;
   }
   for (const p of projects) {
-    const card = document.createElement("div");
-    card.className = "project-card";
-    if (p.slug === selectedProject) card.classList.add("selected");
-    if (p.slug === activeProject && orchestrating) card.classList.add("active");
+    const tile = document.createElement("div");
+    tile.className = "project-tile";
+    if (p.slug === activeProject && orchestrating) tile.classList.add("active");
     const c = p.counts || {};
-    card.innerHTML = `
+    tile.innerHTML = `
       <div class="pc-title">${esc(p.title)}</div>
       <div class="pc-slug mono">${esc(p.slug)}</div>
       ${p.workspace_path ? `<div class="pc-ws mono muted">${esc(p.workspace_path)}</div>` : ""}
@@ -411,28 +449,35 @@ async function loadProjects() {
         <button class="link pc-edit" type="button">Edit</button>
         <button class="link pc-del" type="button">Delete</button>
       </div>`;
-    card.addEventListener("click", () => selectProject(p.slug));
-    card.querySelector(".pc-edit").addEventListener("click", (ev) => {
+    tile.addEventListener("click", (ev) => {
+      if (ev.target.closest(".pc-actions")) return;
+      selectProject(p.slug);
+    });
+    tile.querySelector(".pc-edit").addEventListener("click", (ev) => {
       ev.stopPropagation();
       startEditProject(p.slug);
     });
-    card.querySelector(".pc-del").addEventListener("click", (ev) => {
+    tile.querySelector(".pc-del").addEventListener("click", (ev) => {
       ev.stopPropagation();
       deleteProject(p.slug);
     });
-    list.appendChild(card);
+    list.appendChild(tile);
   }
+  syncMissionView();
 }
 
 function selectProject(slug, preferredIteration) {
   selectedProject = slug;
   if (!preferredIteration) selectedIteration = null;
   iterationsCache = [];
-  $("board-slug").textContent = slug ? `· ${slug}` : "";
+  const proj = projectsCache.find((p) => p.slug === slug);
+  $("board-slug").textContent = proj ? `· ${proj.title}` : slug ? `· ${slug}` : "";
   $("iteration-bar").classList.toggle("hidden", !slug);
   updateIterationActions();
+  setMissionView("project");
   loadProjects();
   loadIterations(preferredIteration).then(() => loadBoard());
+  onProjectContextChanged();
 }
 
 async function loadIterations(preferredId) {
@@ -669,11 +714,7 @@ async function deleteProject(slug) {
     return;
   }
   if (selectedProject === slug) {
-    selectedProject = null;
-    selectedIteration = null;
-    $("board-slug").textContent = "";
-    $("iteration-bar").classList.add("hidden");
-    updateIterationActions();
+    showMissionHome();
   }
   if (editingSlug === slug) { resetProjectForm(); closeProjectModal(); }
   await loadProjects();
@@ -1106,42 +1147,25 @@ function fmtBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function loadArtifactProjects() {
-  let projects = projectsCache;
-  if (!projects.length) {
-    try { projects = (await api("/api/v1/projects")).projects || []; projectsCache = projects; } catch (e) { return; }
-  }
-  const select = $("art-project");
-  const prev = select.value;
-  select.replaceChildren();
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = projects.length ? "Select Project" : "No projects yet";
-  select.appendChild(placeholder);
-  if (!projects.length) {
-    $("art-files").replaceChildren();
-    $("art-files").innerHTML = '<div class="empty-note">No projects yet.</div>';
+async function refreshArtifacts() {
+  const slug = selectedProject;
+  updateArtifactBanner(slug);
+  updateArtConsoleChrome(slug);
+  const newBtn = $("art-new-file");
+  if (newBtn) newBtn.disabled = !slug;
+  if (!slug) {
+    $("art-files").innerHTML = '<div class="empty-note">Open a project in Mission Control to list its files.</div>';
+    $("art-count").textContent = "";
     return;
   }
-  for (const p of projects) {
-    const opt = document.createElement("option");
-    opt.value = p.slug;
-    opt.textContent = `${p.title} (${p.slug})`;
-    select.appendChild(opt);
-  }
-  const pick = (prev && projects.some((p) => p.slug === prev)) ? prev
-    : (artifactProject && projects.some((p) => p.slug === artifactProject)) ? artifactProject
-    : "";
-  select.value = pick;
-  updateArtifactBanner(pick);
-  loadArtifactFiles(pick);
+  await loadArtifactFiles(slug);
 }
 
 function updateArtifactBanner(slug) {
   const banner = $("art-banner");
   if (!banner) return;
   if (!slug) {
-    banner.innerHTML = "Select a project to browse files agents created in its workspace.";
+    banner.innerHTML = "Open a project in Mission Control to browse files agents created in its workspace.";
     return;
   }
   const proj = projectsCache.find((p) => p.slug === slug);
@@ -1159,11 +1183,11 @@ function updateArtConsoleChrome(slug) {
     input.disabled = !enabled;
     input.placeholder = enabled
       ? "Run a command in the project workspace…"
-      : "Select a project first…";
+      : "Open a project in Mission Control first…";
   }
   if (clearBtn) clearBtn.disabled = !enabled;
   if (cwdEl) {
-    if (!slug) cwdEl.textContent = "Select a project to run commands.";
+    if (!slug) cwdEl.textContent = "Open a project in Mission Control to run commands.";
     else {
       const proj = projectsCache.find((p) => p.slug === slug);
       cwdEl.textContent = projectDirPlain(proj, slug);
@@ -1187,13 +1211,13 @@ function clearArtConsoleOutput() {
 }
 
 async function runArtConsoleCommand(command) {
-  if (!artifactProject || !command) return;
+  if (!selectedProject || !command) return;
   const input = $("art-console-input");
   appendArtConsole(`$ ${command}`, "cmd");
   if (input) input.disabled = true;
   try {
     const res = await api(
-      `/api/v1/projects/${encodeURIComponent(artifactProject)}/console`,
+      `/api/v1/projects/${encodeURIComponent(selectedProject)}/console`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1209,7 +1233,7 @@ async function runArtConsoleCommand(command) {
     if (res.timed_out) meta.push("timed out");
     if (res.truncated) meta.push("output truncated");
     appendArtConsole(`[${meta.join(" · ")}]`, "meta");
-    await loadArtifactFiles(artifactProject);
+    await loadArtifactFiles(selectedProject);
   } catch (e) {
     appendArtConsole(e.message || String(e), "err");
   } finally {
@@ -1221,13 +1245,13 @@ async function runArtConsoleCommand(command) {
 }
 
 async function loadArtifactFiles(slug) {
-  artifactProject = slug;
+  if (slug !== selectedProject) return;
   updateArtifactBanner(slug);
   updateArtConsoleChrome(slug);
   const newBtn = $("art-new-file");
   if (newBtn) newBtn.disabled = !slug;
   const list = $("art-files");
-  if (!slug) { list.innerHTML = '<div class="empty-note">Select a project.</div>'; return; }
+  if (!slug) { list.innerHTML = '<div class="empty-note">Open a project in Mission Control to list its files.</div>'; return; }
   let data;
   try { data = await api(`/api/v1/projects/${encodeURIComponent(slug)}/files`); }
   catch (e) { list.innerHTML = '<div class="empty-note">Could not load files.</div>'; return; }
@@ -1326,12 +1350,12 @@ function setArtifactStatus(msg, isError = false) {
 }
 
 async function saveArtifactFile() {
-  if (!artifactProject || !artifactFile || !artifactCanEdit) return;
+  if (!selectedProject || !artifactFile || !artifactCanEdit) return;
   const content = $("art-file-body").value;
   $("art-save").disabled = true;
   setArtifactStatus("Saving…");
   try {
-    const data = await api(`/api/v1/projects/${encodeURIComponent(artifactProject)}/file`, {
+    const data = await api(`/api/v1/projects/${encodeURIComponent(selectedProject)}/file`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: artifactFile, content }),
@@ -1340,7 +1364,7 @@ async function saveArtifactFile() {
     setArtifactEditMode(false);
     $("art-file-meta").textContent = fmtBytes(data.size);
     setArtifactStatus("Saved.");
-    await loadArtifactFiles(artifactProject);
+    await loadArtifactFiles(selectedProject);
   } catch (e) {
     setArtifactStatus("Save failed: " + e.message, true);
   } finally {
@@ -1355,54 +1379,48 @@ function cancelArtifactEdit() {
 }
 
 // --- git history ---
-let gitProject = null;
-
-async function loadGitProjects() {
-  let projects = projectsCache;
-  if (!projects.length) {
-    try { projects = (await api("/api/v1/projects")).projects || []; projectsCache = projects; } catch (e) { return; }
+async function refreshGitHistory() {
+  const slug = selectedProject;
+  const proj = currentProject();
+  updateGitBanner(slug);
+  const body = $("git-body");
+  body.replaceChildren();
+  if (!slug) {
+    body.appendChild(emptyRow(4, "Open a project in Mission Control to view commits."));
+    $("git-count").textContent = "";
+    return;
   }
-  const gitProjects = projects.filter((p) => p.needs_git);
-  const select = $("git-project");
-  const prev = select.value;
-  select.replaceChildren();
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = gitProjects.length ? "Select Project" : "No Git-enabled projects";
-  select.appendChild(placeholder);
-  for (const p of gitProjects) {
-    const opt = document.createElement("option");
-    opt.value = p.slug;
-    opt.textContent = `${p.title} (${p.slug})`;
-    select.appendChild(opt);
+  if (!proj || !proj.needs_git) {
+    body.appendChild(emptyRow(4, "This project does not have Git enabled. Edit the project to turn on Git integration."));
+    $("git-count").textContent = "";
+    return;
   }
-  const pick = (prev && gitProjects.some((p) => p.slug === prev)) ? prev
-    : (gitProject && gitProjects.some((p) => p.slug === gitProject)) ? gitProject
-    : "";
-  select.value = pick;
-  updateGitBanner(pick);
-  loadGitCommits(pick);
+  await loadGitCommits(slug);
 }
 
 function updateGitBanner(slug) {
   const banner = $("git-banner");
   if (!slug) {
-    banner.innerHTML = "Select a project to view commits made after each sprint.";
+    banner.innerHTML = "Open a project in Mission Control to view sprint commits.";
     return;
   }
   const proj = projectsCache.find((p) => p.slug === slug);
+  if (!proj || !proj.needs_git) {
+    banner.innerHTML = `<strong>${esc(proj ? proj.title : slug)}</strong> does not have Git enabled.`;
+    return;
+  }
   const name = proj ? esc(proj.title) : esc(slug);
   const path = projectDirLabel(proj, slug);
   banner.innerHTML = `Commits Flight Deck made for <strong>${name}</strong> in <span class="mono">${path}</span> after each sprint.`;
 }
 
 async function loadGitCommits(slug) {
-  gitProject = slug;
+  if (slug !== selectedProject) return;
   updateGitBanner(slug);
   const body = $("git-body");
   body.replaceChildren();
   if (!slug) {
-    body.appendChild(emptyRow(4, "Select a Git-enabled project to view commits."));
+    body.appendChild(emptyRow(4, "Open a Git-enabled project in Mission Control to view commits."));
     $("git-count").textContent = "";
     return;
   }
@@ -1476,7 +1494,7 @@ let runsCache = [];
 let runsPage = 0;
 
 async function loadRuns() {
-  const slug = $("project-select").value;
+  const slug = selectedProject;
   if (!slug) { runsCache = []; renderRuns(); return; }
   let data;
   try { data = await api(`/api/v1/projects/${encodeURIComponent(slug)}/runs?limit=200`); } catch (e) { return; }
@@ -1489,9 +1507,9 @@ function renderRuns() {
   const pager = $("runs-pager");
   body.replaceChildren();
   if (!runsCache.length) {
-    const msg = $("project-select").value
+    const msg = selectedProject
       ? "No runs recorded yet for this project"
-      : "Select a project to view its run history";
+      : "Open a project in Mission Control to view its run history";
     body.appendChild(emptyRow(10, msg));
     pager.classList.add("hidden");
     return;
@@ -1527,25 +1545,18 @@ function renderRuns() {
   $("runs-next").disabled = runsPage >= pageCount - 1;
 }
 
-function syncProjectSelectLock() {
-  const select = $("project-select");
-  if (!select) return;
-  const lockedProject = (orchestrating || statePlanning) ? (activeProject || planningProject) : null;
-  if (lockedProject) {
-    if (select.querySelector(`option[value="${CSS.escape(lockedProject)}"]`)) select.value = lockedProject;
-    select.disabled = true;
-    select.title = `Locked while "${lockedProject}" is running — stop orchestration to switch`;
-  } else {
-    select.disabled = false;
-    select.title = "Project to orchestrate";
-  }
+function updateOrchestrateButtons() {
+  const hasProject = !!selectedProject;
+  const locked = orchestrating || statePlanning;
+  $("plan-orchestrate").disabled = !hasProject || locked;
+  $("orchestrate").disabled = !hasProject || locked;
 }
 
 let statePlanning = false;
 let planningProject = null;
 
 function renderTotals(state) {
-  const slug = $("project-select").value;
+  const slug = selectedProject;
   const scoped = slug && state.active_project === slug;
   $("m-running").textContent = scoped ? state.counts.running : (slug ? 0 : state.counts.running);
   $("m-retrying").textContent = scoped ? state.counts.retrying : (slug ? 0 : state.counts.retrying);
@@ -1584,7 +1595,7 @@ function renderOrchStatus(state) {
     }
   }
   updateIterationActions();
-  syncProjectSelectLock();
+  updateOrchestrateButtons();
 
   const pill = $("orch-status");
   const banner = $("orch-banner");
@@ -1613,7 +1624,9 @@ function renderOrchStatus(state) {
   } else {
     pill.textContent = "idle";
     pill.className = "pill idle";
-    banner.textContent = "Idle — select a project, then Plan & Orchestrate.";
+    banner.textContent = selectedProject
+      ? `Idle — working on ${projectLabel(selectedProject)}. Pick an iteration in Mission Control, then orchestrate.`
+      : "Idle — open a project in Mission Control first.";
     banner.className = "banner idle";
     $("plan-orchestrate").classList.remove("hidden");
     $("orchestrate").classList.remove("hidden");
@@ -1628,7 +1641,7 @@ function renderOrchStatus(state) {
 
 async function poll() {
   try {
-    const slug = $("project-select").value;
+    const slug = selectedProject;
     const q = slug ? `?project=${encodeURIComponent(slug)}` : "";
     const state = await api(`/api/v1/state${q}`);
     lastApiState = state;
@@ -1690,6 +1703,7 @@ function showSetupScreen() {
   stopAuto();
   $("app-shell").classList.add("hidden");
   $("model-setup-screen").classList.remove("hidden");
+  document.body.classList.remove("tab-artifacts-active");
   modelSetupConfigured = false;
   modelTestPassed = false;
   $("setup-continue").disabled = true;
@@ -1893,21 +1907,13 @@ $("auto").addEventListener("change", (e) => {
   if (e.target.checked) startAuto(); else stopAuto();
 });
 
-$("project-select").addEventListener("change", (e) => {
-  if (orchestrating || statePlanning) return;
-  if (e.target.value) selectProject(e.target.value);
-  runsPage = 0;
-  loadRuns();
-  poll();
-});
-
 async function startOrchestration(plan) {
-  const slug = $("project-select").value;
+  const slug = selectedProject;
   const iterationId = selectedIteration;
   if (!slug) {
     await alertModal({
       title: "Project required",
-      message: "Create and pick a project first.",
+      message: "Open a project in Mission Control first.",
     });
     return;
   }
@@ -1991,6 +1997,14 @@ $("dir-select").addEventListener("click", () => {
 $("toggle-new-project").addEventListener("click", () => {
   resetProjectForm();
   openProjectModal();
+});
+
+$("mission-back").addEventListener("click", showMissionHome);
+$("mission-edit-project").addEventListener("click", () => {
+  if (selectedProject) startEditProject(selectedProject);
+});
+$("mission-delete-project").addEventListener("click", () => {
+  if (selectedProject) deleteProject(selectedProject);
 });
 
 $("np-cancel").addEventListener("click", () => {
@@ -2245,14 +2259,13 @@ $("new-task").addEventListener("submit", async (e) => {
 $("runs-prev").addEventListener("click", () => { if (runsPage > 0) { runsPage--; renderRuns(); } });
 $("runs-next").addEventListener("click", () => { runsPage++; renderRuns(); });
 
-$("art-project").addEventListener("change", (e) => loadArtifactFiles(e.target.value));
-$("art-refresh").addEventListener("click", () => artifactProject && loadArtifactFiles(artifactProject));
+$("art-refresh").addEventListener("click", () => selectedProject && loadArtifactFiles(selectedProject));
 $("art-edit").addEventListener("click", () => { if (artifactCanEdit) setArtifactEditMode(true); });
 $("art-save").addEventListener("click", saveArtifactFile);
 $("art-cancel").addEventListener("click", cancelArtifactEdit);
 
 function openArtNewModal() {
-  if (!artifactProject) return;
+  if (!selectedProject) return;
   $("art-new-name").value = "";
   $("art-new-body").value = "";
   $("art-new-error").textContent = "";
@@ -2271,7 +2284,7 @@ function normalizeArtPath(name) {
 
 async function createArtifactFile(e) {
   e.preventDefault();
-  if (!artifactProject) return;
+  if (!selectedProject) return;
   const path = normalizeArtPath($("art-new-name").value);
   if (!path) {
     $("art-new-error").textContent = "File name is required.";
@@ -2285,14 +2298,14 @@ async function createArtifactFile(e) {
   $("art-new-error").textContent = "";
   $("art-new-save").disabled = true;
   try {
-    const data = await api(`/api/v1/projects/${encodeURIComponent(artifactProject)}/file`, {
+    const data = await api(`/api/v1/projects/${encodeURIComponent(selectedProject)}/file`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, content }),
     });
     closeArtNewModal();
-    await loadArtifactFiles(artifactProject);
-    await openArtifactFile(artifactProject, data.path);
+    await loadArtifactFiles(selectedProject);
+    await openArtifactFile(selectedProject, data.path);
   } catch (err) {
     $("art-new-error").textContent = err.message;
   } finally {
@@ -2309,7 +2322,7 @@ $("art-console-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = $("art-console-input");
   const command = (input && input.value || "").trim();
-  if (!command || !artifactProject) return;
+  if (!command || !selectedProject) return;
   if (!artConsoleHistory.length || artConsoleHistory[artConsoleHistory.length - 1] !== command) {
     artConsoleHistory.push(command);
   }
@@ -2343,8 +2356,7 @@ $("art-console-clear").addEventListener("click", () => {
   $("art-console-input")?.focus();
 });
 
-$("git-project").addEventListener("change", (e) => loadGitCommits(e.target.value));
-$("git-refresh").addEventListener("click", () => gitProject && loadGitCommits(gitProject));
+$("git-refresh").addEventListener("click", () => selectedProject && refreshGitHistory());
 
 $("detail-close").addEventListener("click", () => $("detail").classList.add("hidden"));
 

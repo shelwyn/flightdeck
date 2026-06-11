@@ -202,6 +202,48 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.45; }
 /* ============================ MISSION CONTROL ============================ */
 .pane-grid { display: grid; grid-template-columns: 320px 1fr; gap: 22px; align-items: start; }
 
+.mission-home-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.mission-home-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: .01em;
+}
+.project-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.project-tiles > .empty-note { grid-column: 1 / -1; }
+.project-tile {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, transform .05s;
+}
+.project-tile:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.project-tile:active { transform: translateY(1px); }
+.project-tile.active { border-color: var(--ok); box-shadow: 0 0 0 1px rgba(63, 185, 80, .35) inset; }
+.mission-project-nav { margin-bottom: 16px; }
+.mission-back { font-size: 13px; }
+.mission-project-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.mission-project-head { margin-bottom: 12px; }
+.mission-project-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
 .sidebar, .content { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
 
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; }
@@ -221,18 +263,6 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.45; }
 
 .projects { display: flex; flex-direction: column; gap: 10px; }
 .empty-note { color: var(--muted); font-size: 12.5px; padding: 8px 2px; }
-.project-card {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 11px 13px;
-  cursor: pointer;
-  transition: border-color .15s, transform .05s;
-}
-.project-card:hover { border-color: #34405a; }
-.project-card:active { transform: translateY(1px); }
-.project-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.project-card.active { border-color: var(--ok); }
 .pc-title { font-weight: 600; }
 .pc-slug { color: var(--muted); font-size: 11px; margin: 3px 0 9px; }
 .pc-ws { font-size: 10px; margin: -6px 0 8px; word-break: break-all; line-height: 1.35; }
@@ -576,15 +606,15 @@ html[data-theme="light"] .card-status-done { color: #1a1a1a; }
 .art-workspace { display: flex; flex-direction: column; gap: 16px; }
 
 /* Artifacts tab: fill viewport; console pinned to bottom of editor column */
-#app-shell:not(.hidden) {
+#app-shell:not(.hidden):has(#tab-artifacts:not(.hidden)) {
   display: flex;
   flex-direction: column;
   height: 100vh;
   max-height: 100vh;
   overflow: hidden;
 }
-#app-shell .topbar { flex-shrink: 0; }
-#app-shell > .tab-pane:not(.hidden):not(#tab-artifacts) {
+#app-shell:not(.hidden):has(#tab-artifacts:not(.hidden)) .topbar { flex-shrink: 0; }
+#app-shell:not(.hidden):has(#tab-artifacts:not(.hidden)) > .tab-pane:not(.hidden):not(#tab-artifacts) {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -775,6 +805,19 @@ html[data-theme="light"] .card-status-done { color: #1a1a1a; }
 }
 .cb-left { display: flex; align-items: center; gap: 10px; }
 .cb-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.tab-project-context {
+  font-size: 13px;
+  font-weight: 550;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-width: min(320px, 40vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-project-context.active { color: var(--text); border-color: var(--accent-soft); }
 .banner { font-size: 13px; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--line); }
 .banner.idle { color: var(--muted); background: var(--panel-2); }
 .banner.running { color: var(--text); background: var(--ok-soft); border-color: rgba(63,185,80,.4); }

@@ -83,7 +83,6 @@ Pi owns **models, API keys, OAuth, and tools**. Flight Deck inherits Pi’s logi
 | **Node.js 22+** (recommended) | Required by Pi’s npm-based install and extensions |
 
 Optional:
-- **Linear** — set `tracker.kind: linear` in `WORKFLOW.md` and provide `LINEAR_API_KEY` (default tracker is built-in SQLite)
 - **LiteLLM proxy** — if you use the shipped extension: `/login litellm` in Pi or `LITELLM_BASE_URL` + `LITELLM_API_KEY`
 
 ---
@@ -134,8 +133,8 @@ Pi stores provider settings under `~/.pi/agent/`. Flight Deck reads your Pi defa
 ## Clone and run
 
 ```bash
-git clone https://github.com/shelwyn/flightdeck FlightDeck
-cd FlightDeck
+git clone https://github.com/shelwyn/flightdeck.git
+cd flightdeck
 ./run.sh
 ```
 
@@ -207,19 +206,11 @@ FlightDeck/
 
 Edit `BACKEND/WORKFLOW.md` to change:
 
-- **Tracker**: `kind: local` (default) or `kind: linear`
+- **Board states** and comment hooks under `tracker`
 - **Concurrency**: `agent.max_concurrent_agents`
 - **Turn limits and timeouts**
 - **Agent prompt** (Jinja body below the YAML front matter)
 - **Dashboard bind**: `server.host` / `server.port` (default `127.0.0.1:8787`)
-
-For Linear, copy credentials into `BACKEND/.env`:
-
-```bash
-LINEAR_API_KEY=your_key_here
-```
-
-and set `tracker.kind: linear` plus `tracker.project_slug` in `WORKFLOW.md`.
 
 ---
 
