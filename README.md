@@ -134,7 +134,7 @@ Pi stores provider settings under `~/.pi/agent/`. Flight Deck reads your Pi defa
 ## Clone and run
 
 ```bash
-git clone <your-repo-url> FlightDeck
+git clone https://github.com/shelwyn/flightdeck FlightDeck
 cd FlightDeck
 ./run.sh
 ```
