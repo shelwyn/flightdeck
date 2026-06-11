@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="application-name" content="Flight Deck" />
+  <title>Flight Deck</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="alternate icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" href="/static/favicon.svg" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="model-setup-screen" class="setup-screen" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+    <div class="setup-card">
+      <div id="setup-loader" class="modal-loader hidden" aria-hidden="true">
+        <div class="spinner"></div>
+        <p id="setup-loader-text" class="modal-loader-text">Loading models…</p>
+      </div>
+      <div class="setup-brand">
+        <span class="logo">◑</span>
+        <span class="brand-name">Flight Deck</span>
+      </div>
+      <h1 id="setup-title">Configure your model</h1>
+      <form id="setup-form" class="form stacked">
+        <label class="fld">
+          <span class="fld-label">Model</span>
+          <div class="setup-model-row">
+            <select id="setup-model"></select>
+            <button type="button" id="setup-refresh-models" class="ghost">Refresh</button>
+          </div>
+          <span id="setup-models-hint" class="muted setup-hint"></span>
+        </label>
+        <label class="fld">
+          <span class="fld-label">Test prompt</span>
+          <textarea id="setup-prompt" class="mono setup-prompt" rows="4" required spellcheck="false">Say hello in one short sentence.</textarea>
+        </label>
+        <label class="fld">
+          <span class="fld-label">Response</span>
+          <textarea id="setup-reply" class="mono setup-reply" rows="6" readonly placeholder="Run a test to see the model reply here." spellcheck="false"></textarea>
+        </label>
+        <span id="setup-error" class="error"></span>
+        <div class="setup-actions">
+          <button type="button" id="setup-test" class="ghost">Test connection</button>
+          <button type="submit" id="setup-continue" class="primary" disabled>Save &amp; continue</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="app-shell" class="hidden">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◑</span>
+      <span class="brand-name">Flight Deck</span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="mission" role="tab">Mission Control</button>
+      <button class="tab" data-tab="operations" role="tab">Operations</button>
+      <button class="tab" data-tab="artifacts" role="tab">Artifacts</button>
+      <button class="tab hidden" id="tab-git-btn" data-tab="git" role="tab">GIT history</button>
+    </nav>
+    <div class="controls">
+      <span id="orch-status" class="pill idle">idle</span>
+      <span id="status-dot" class="dot" title="connection"></span>
+      <span id="generated" class="muted mono" title="last update">—</span>
+      <label class="auto"><input type="checkbox" id="auto" checked /> auto</label>
+      <span id="active-model-label" class="muted mono setup-model-badge" title="Active Pi model"></span>
+      <button id="refresh" class="ghost">Refresh</button>
+      <button id="model-logout" class="ghost" type="button" title="Change model">Logout</button>
+      <button id="theme-toggle" class="icon-btn" title="Toggle dark / light" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- ============================ MISSION CONTROL ============================ -->
+  <section class="tab-pane" id="tab-mission">
+    <div class="pane-grid">
+      <aside class="sidebar">
+        <div class="panel-head">
+          <h2>Projects</h2>
+          <button id="toggle-new-project" class="link">+ New</button>
+        </div>
+        <div id="projects-list" class="projects">
+          <div class="empty-note">No projects yet. Create one to begin.</div>
+        </div>
+      </aside>
+
+      <div class="content">
+        <div class="panel-head">
+          <h2>Sprint board <span id="board-slug" class="muted mono"></span></h2>
+        </div>
+        <div id="iteration-bar" class="iteration-bar hidden">
+          <div class="iteration-left">
+            <label class="cb-label" for="iteration-select">Iteration</label>
+            <select id="iteration-select" title="Active iteration"></select>
+            <span id="iteration-state" class="pill iter-planning">planning</span>
+            <button id="toggle-new-iteration" class="link" type="button">+ New iteration</button>
+          </div>
+          <div class="iteration-actions">
+            <button id="toggle-new-task" class="link" type="button" disabled>+ Add task</button>
+            <button id="toggle-testing-instructions" class="link" type="button" disabled>+ Add testing instructions</button>
+            <button id="toggle-new-bug" class="link" type="button" disabled>+ Add bug</button>
+          </div>
+        </div>
+        <div id="board" class="board">
+          <div class="board-hint">Select a project to view its sprint board.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== OPERATIONS =============================== -->
+  <section class="tab-pane hidden" id="tab-operations">
+    <div class="control-bar">
+      <div class="cb-left">
+        <label class="cb-label">Project</label>
+        <select id="project-select" title="project to orchestrate"></select>
+        <button id="plan-orchestrate" class="primary" title="Use the LLM planner to sequence Todo tasks, then orchestrate">✦ Plan &amp; Orchestrate</button>
+        <button id="orchestrate" class="ghost" title="Orchestrate using the existing plan / FIFO order">▶ Orchestrate</button>
+        <button id="stop" class="danger hidden">■ Stop</button>
+      </div>
+      <div class="cb-right">
+        <span id="orch-banner" class="banner idle">Idle — select a project and click Orchestrate.</span>
+      </div>
+    </div>
+
+    <section class="totals" id="totals">
+      <div class="metric"><div class="k">Running</div><div class="v" id="m-running">0</div></div>
+      <div class="metric"><div class="k">Retrying</div><div class="v" id="m-retrying">0</div></div>
+      <div class="metric metric-project"><div class="k">Input tokens</div><div class="v" id="m-in">—</div></div>
+      <div class="metric metric-project"><div class="k">Output tokens</div><div class="v" id="m-out">—</div></div>
+      <div class="metric metric-project"><div class="k">Total tokens</div><div class="v" id="m-total">—</div></div>
+      <div class="metric metric-project"><div class="k">Runtime</div><div class="v" id="m-runtime">—</div></div>
+    </section>
+
+    <main class="ops-main">
+      <h2>Running sessions</h2>
+      <table class="grid">
+        <thead>
+          <tr>
+            <th>Task</th><th>Agent</th><th>State</th><th>Session</th><th>Turns</th>
+            <th>Last event</th><th>Started</th><th class="num">Tokens</th>
+          </tr>
+        </thead>
+        <tbody id="running-body"><tr class="empty"><td colspan="8">No running sessions</td></tr></tbody>
+      </table>
+
+      <h2>Retry queue</h2>
+      <table class="grid">
+        <thead>
+          <tr><th>Task</th><th>Attempt</th><th>Due</th><th>Error</th></tr>
+        </thead>
+        <tbody id="retry-body"><tr class="empty"><td colspan="4">Retry queue empty</td></tr></tbody>
+      </table>
+
+      <h2>Run history</h2>
+      <table class="grid">
+        <thead>
+          <tr>
+            <th>Task</th><th>Iteration</th><th>Kind</th><th>Attempt</th><th>Outcome</th><th>Turns</th>
+            <th class="num">Tokens (in/out)</th><th class="num">Total</th>
+            <th class="num">Runtime</th><th>Finished</th>
+          </tr>
+        </thead>
+        <tbody id="runs-body"><tr class="empty"><td colspan="10">No runs recorded yet</td></tr></tbody>
+      </table>
+      <div id="runs-pager" class="pager hidden">
+        <button id="runs-prev" type="button" class="ghost">‹ Prev</button>
+        <span id="runs-page" class="muted"></span>
+        <button id="runs-next" type="button" class="ghost">Next ›</button>
+      </div>
+    </main>
+  </section>
+
+  <!-- =============================== ARTIFACTS ================================ -->
+  <section class="tab-pane hidden" id="tab-artifacts">
+    <div class="control-bar">
+      <div class="cb-left">
+        <label class="cb-label">Project</label>
+        <select id="art-project" title="project workspace"></select>
+        <button id="art-refresh" class="ghost">Refresh files</button>
+      </div>
+      <div class="cb-right">
+        <span class="banner idle" id="art-banner">Select a project to browse files agents created in its workspace.</span>
+      </div>
+    </div>
+    <div class="art-workspace">
+    <div class="pane-grid">
+      <aside class="sidebar">
+        <div class="panel-head">
+          <h2>Files <span id="art-count" class="muted"></span></h2>
+          <button type="button" id="art-new-file" class="icon-btn" title="Create a new file" aria-label="Create a new file" disabled>
+            <svg class="plus-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div id="art-files" class="file-list">
+          <div class="empty-note">Select a project to list its files.</div>
+        </div>
+      </aside>
+      <div class="content">
+        <div class="art-editor-pane">
+        <div class="panel-head art-file-head">
+          <div class="art-file-title">
+            <h2 id="art-file-name" class="mono">No file selected</h2>
+            <span id="art-file-meta" class="muted mono"></span>
+          </div>
+          <div id="art-file-actions" class="art-file-actions hidden">
+            <button type="button" id="art-edit" class="ghost">Edit</button>
+            <button type="button" id="art-save" class="primary hidden">Save</button>
+            <button type="button" id="art-cancel" class="ghost hidden">Cancel</button>
+          </div>
+        </div>
+        <textarea id="art-file-body" class="file-view mono" readonly spellcheck="false"
+                  placeholder="Select a file from the left to preview its contents."></textarea>
+        <span id="art-file-status" class="muted art-file-status"></span>
+        </div>
+        <div id="art-console" class="art-console">
+          <div class="art-console-head">
+            <span class="art-console-title mono">console</span>
+            <span id="art-console-cwd" class="mono art-console-cwd">Select a project to run commands.</span>
+            <button type="button" id="art-console-clear" class="art-console-btn" disabled>clear</button>
+          </div>
+          <div id="art-console-output" class="art-console-output mono" aria-live="polite"></div>
+          <form id="art-console-form" class="art-console-form">
+            <label class="art-console-prompt mono" for="art-console-input">$</label>
+            <input id="art-console-input" class="mono" type="text" autocomplete="off" spellcheck="false"
+                   placeholder="" disabled />
+          </form>
+        </div>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- ============================== GIT HISTORY ============================== -->
+  <section class="tab-pane hidden" id="tab-git">
+    <div class="control-bar">
+      <div class="cb-left">
+        <label class="cb-label">Project</label>
+        <select id="git-project" title="project repository"></select>
+        <button id="git-refresh" class="ghost">Refresh commits</button>
+      </div>
+      <div class="cb-right">
+        <span class="banner idle" id="git-banner">Select a project to view commits made after each sprint.</span>
+      </div>
+    </div>
+    <main class="ops-main">
+      <h2>Commits <span id="git-count" class="muted"></span></h2>
+      <table class="grid">
+        <thead>
+          <tr><th>Commit</th><th>Author</th><th>Date</th><th>Message</th></tr>
+        </thead>
+        <tbody id="git-body"><tr class="empty"><td colspan="4">Select a Git-enabled project to view commits.</td></tr></tbody>
+      </table>
+    </main>
+  </section>
+
+  <div id="detail" class="detail hidden">
+    <div class="detail-head">
+      <span id="detail-title" class="mono"></span>
+      <button id="detail-close" class="ghost">close</button>
+    </div>
+    <pre id="detail-body" class="mono"></pre>
+  </div>
+
+  <div id="project-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="np-modal-title">
+    <div class="modal-card">
+      <div id="project-modal-loader" class="modal-loader hidden" aria-hidden="true">
+        <div class="spinner"></div>
+        <p id="project-modal-loader-text" class="modal-loader-text">Saving…</p>
+      </div>
+      <h3 id="np-modal-title">New project</h3>
+      <form id="new-project" class="form stacked">
+        <label class="fld">
+          <span class="fld-label">Title</span>
+          <input id="np-title" type="text" placeholder="Title" required />
+        </label>
+        <label class="fld">
+          <span class="fld-label">Slug</span>
+          <input id="np-slug" type="text" placeholder="project-slug (required, one word)" required
+                 pattern="[a-z0-9-]+" title="lowercase letters, numbers and hyphens only — no spaces" autocomplete="off" />
+        </label>
+        <label class="fld">
+          <span class="fld-label">Description <span class="muted">(optional)</span></span>
+          <textarea id="np-desc" placeholder="Description" rows="3"></textarea>
+        </label>
+        <label class="checkbox-fld">
+          <input id="np-git" type="checkbox" />
+          <span>Track this project in Git</span>
+        </label>
+        <label class="fld">
+          <span class="fld-label">Project folder <span class="muted">(optional — use an existing directory on this machine)</span></span>
+          <div class="workspace-pick">
+            <input id="np-workspace" type="text" class="mono" readonly placeholder="Default: WORKSPACES/&lt;slug&gt;/" />
+            <div class="workspace-pick-actions">
+              <button type="button" id="np-browse" class="icon-btn" title="Browse for folder" aria-label="Browse for folder">
+                <svg class="folder-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 2H12.5A1.5 1.5 0 0 1 14 6.5v6A1.5 1.5 0 0 1 12.5 14h-9A1.5 1.5 0 0 1 2 12.5v-8Z" fill="none" stroke="currentColor" stroke-width="1.25"/></svg>
+              </button>
+              <button type="button" id="np-workspace-clear" class="ghost hidden">Use default</button>
+            </div>
+          </div>
+        </label>
+        <hr class="form-divider" />
+        <div class="form-actions">
+          <button type="submit" id="np-submit" class="primary">Create project</button>
+          <button type="button" id="np-cancel" class="ghost">Cancel</button>
+        </div>
+        <span id="np-error" class="error"></span>
+      </form>
+    </div>
+  </div>
+
+  <div id="iteration-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="iter-modal-title">
+    <div class="modal-card">
+      <h3 id="iter-modal-title">New iteration</h3>
+      <form id="new-iteration" class="form stacked">
+        <label class="fld">
+          <span class="fld-label">Title</span>
+          <input id="iter-title" type="text" placeholder="Iteration 2" required />
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="primary">Create iteration</button>
+          <button type="button" id="iter-cancel" class="ghost">Cancel</button>
+        </div>
+        <span id="iter-error" class="error"></span>
+      </form>
+    </div>
+  </div>
+
+  <div id="testing-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="qa-modal-title">
+    <div class="modal-card">
+      <h3 id="qa-modal-title">Testing instructions</h3>
+      <p class="muted qa-modal-hint">These instructions drive the adversarial QA agent. Orchestration will not start until this is filled in.</p>
+      <form id="testing-instructions-form" class="form stacked">
+        <label class="fld">
+          <span class="fld-label">QA agent instructions</span>
+          <textarea id="qa-instructions" rows="8" placeholder="Describe what to verify, how to run tests, acceptance criteria, edge cases to probe…" required></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="primary">Save instructions</button>
+          <button type="button" id="qa-cancel" class="ghost">Cancel</button>
+        </div>
+        <span id="qa-error" class="error"></span>
+      </form>
+    </div>
+  </div>
+
+  <div id="task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="tm-title">
+    <div class="modal-card">
+      <div id="task-modal-loader" class="modal-loader hidden" aria-hidden="true">
+        <div class="spinner"></div>
+        <p id="task-modal-loader-text" class="modal-loader-text">Saving…</p>
+      </div>
+      <h3 id="tm-title">New task <span id="tm-slug" class="muted mono"></span></h3>
+      <form id="new-task" class="form stacked">
+        <label class="fld">
+          <span class="fld-label">Title</span>
+          <input id="nt-title" type="text" placeholder="Short task title" required />
+        </label>
+        <label class="fld">
+          <span class="fld-label">What should the agent do?</span>
+          <textarea id="nt-desc" rows="5" placeholder="Describe the work for the agent in detail…"></textarea>
+        </label>
+        <label class="fld" id="nt-file-wrap">
+          <span class="fld-label">Attach a file <span class="muted">(optional — placed in the task workspace)</span></span>
+          <input id="nt-file" type="file" />
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="nt-submit" class="primary">Add to Todo</button>
+          <button type="button" id="nt-cancel" class="ghost">Cancel</button>
+        </div>
+        <span id="nt-error" class="error"></span>
+      </form>
+    </div>
+  </div>
+
+  <div id="art-new-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="art-new-title">
+    <div class="modal-card">
+      <h3 id="art-new-title">Create new file</h3>
+      <form id="art-new-form" class="form stacked">
+        <label class="fld">
+          <span class="fld-label">File name <span class="req">*</span></span>
+          <input id="art-new-name" type="text" class="mono" required placeholder="example.txt or folder/example.txt" autocomplete="off" />
+        </label>
+        <label class="fld">
+          <span class="fld-label">Contents</span>
+          <textarea id="art-new-body" class="mono art-new-body" rows="12" spellcheck="false" placeholder="File contents…"></textarea>
+        </label>
+        <span id="art-new-error" class="error"></span>
+        <div class="modal-actions">
+          <button type="button" id="art-new-cancel" class="ghost">Cancel</button>
+          <button type="submit" id="art-new-save" class="primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="dir-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-wide">
+      <h3>Choose project folder</h3>
+      <p class="muted">Pick an existing directory on this machine. Leave empty to use the default <span class="mono">WORKSPACES/&lt;slug&gt;/</span> folder.</p>
+      <div class="dir-path mono" id="dir-current">/</div>
+      <div id="dir-list" class="dir-list"></div>
+      <div class="modal-actions">
+        <button type="button" id="dir-up" class="ghost">↑ Up</button>
+        <button type="button" id="dir-select" class="primary">Select this folder</button>
+        <button type="button" id="dir-cancel" class="ghost">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h3 id="modal-title">Confirm</h3>
+      <p id="modal-message"></p>
+      <div class="modal-actions">
+        <button id="modal-cancel" type="button" class="ghost">Cancel</button>
+        <button id="modal-confirm" type="button" class="danger">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- #app-shell -->
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

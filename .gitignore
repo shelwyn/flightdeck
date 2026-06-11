@@ -1,0 +1,32 @@
+# --- Runtime data (do not commit) ---
+DATA/
+LOGS/
+
+# Per-project agent workspaces
+WORKSPACES/
+
+# SQLite databases and journals (anywhere under FlightDeck)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Local env / secrets
+.env
+BACKEND/.env
+
+# Python
+BACKEND/.venv/
+BACKEND/__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Local Pi npm cache (Pi fetches npm: packages on first use)
+.pi/npm/
+
+# OS / editor
+.DS_Store
+*~
+*.swp
