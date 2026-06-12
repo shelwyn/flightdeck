@@ -11,6 +11,10 @@ let activeProject = null;     // Operations: project the orchestrator is working
 let activeIteration = null;   // Operations: iteration being orchestrated
 let orchestrating = false;
 let projectsCache = [];       // last loaded projects (for edit prefill)
+const PROJECTS_PER_PAGE = 18;
+const PROJECT_SEARCH_MIN = 4;
+let projectSearchQuery = "";
+let projectPage = 0;
 let editingSlug = null;       // non-null while the project form is in edit mode
 let editingTaskId = null;     // non-null while the task form is in edit mode
 let draggingTaskId = null;    // task id being dragged on the sprint board
@@ -372,6 +376,7 @@ function showMissionHome() {
   setMissionView("home");
   loadBoard();
   onProjectContextChanged();
+  renderProjectTiles();
 }
 
 function currentProject() {
@@ -420,50 +425,156 @@ async function loadProjects() {
   }
 
   updateTabProjectLabels();
-  // Mission Control project tiles (home)
+  renderProjectTiles();
+  syncMissionView();
+}
+
+function projectSearchHaystack(p) {
+  return `${p.title || ""} ${p.slug || ""} ${p.description || ""}`.toLowerCase();
+}
+
+function sortedProjects() {
+  return [...projectsCache].sort((a, b) => {
+    const ca = a.created_at || "";
+    const cb = b.created_at || "";
+    if (ca !== cb) return cb.localeCompare(ca);
+    return (b.slug || "").localeCompare(a.slug || "");
+  });
+}
+
+function filteredProjects() {
+  const q = projectSearchQuery.trim().toLowerCase();
+  const sorted = sortedProjects();
+  if (q.length < PROJECT_SEARCH_MIN) return sorted;
+  return sorted.filter((p) => projectSearchHaystack(p).includes(q));
+}
+
+function buildProjectTile(p) {
+  const tile = document.createElement("div");
+  tile.className = "project-tile";
+  if (p.slug === activeProject && orchestrating) tile.classList.add("active");
+  const c = p.counts || {};
+  tile.innerHTML = `
+    <div class="pc-title">${esc(p.title)}</div>
+    <div class="pc-slug mono">${esc(p.slug)}</div>
+    ${p.workspace_path ? `<div class="pc-ws mono muted">${esc(p.workspace_path)}</div>` : ""}
+    <div class="pc-counts">
+      <span class="dot-todo"></span>${c["Todo"] || 0}
+      <span class="dot-prog"></span>${c["In Progress"] || 0}
+      <span class="dot-done"></span>${c["Completed"] || 0}
+    </div>
+    <div class="pc-actions">
+      <button class="link pc-edit" type="button">Edit</button>
+      <button class="link pc-del" type="button">Delete</button>
+    </div>`;
+  tile.addEventListener("click", (ev) => {
+    if (ev.target.closest(".pc-actions")) return;
+    selectProject(p.slug);
+  });
+  tile.querySelector(".pc-edit").addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    startEditProject(p.slug);
+  });
+  tile.querySelector(".pc-del").addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    deleteProject(p.slug);
+  });
+  return tile;
+}
+
+function renderProjectSearchSuggest() {
+  const box = $("project-search-suggest");
+  if (!box) return;
+  const q = projectSearchQuery.trim();
+  if (q.length < PROJECT_SEARCH_MIN) {
+    box.classList.add("hidden");
+    box.replaceChildren();
+    return;
+  }
+  const matches = filteredProjects().slice(0, 8);
+  box.replaceChildren();
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-note";
+    empty.style.padding = "12px";
+    empty.textContent = "No matching projects.";
+    box.appendChild(empty);
+    box.classList.remove("hidden");
+    return;
+  }
+  for (const p of matches) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "project-search-item";
+    btn.setAttribute("role", "option");
+    btn.innerHTML = `${esc(p.title)}<span class="psi-slug mono">${esc(p.slug)}</span>`;
+    btn.addEventListener("click", () => {
+      clearProjectSearch();
+      selectProject(p.slug);
+    });
+    box.appendChild(btn);
+  }
+  box.classList.remove("hidden");
+}
+
+function renderProjectPager(total, pageCount) {
+  const pager = $("project-pager");
+  if (!pager) return;
+  pager.classList.toggle("hidden", pageCount <= 1);
+  $("project-page-label").textContent = `Page ${projectPage + 1} of ${pageCount} · ${total} project${total === 1 ? "" : "s"}`;
+  $("project-prev").disabled = projectPage <= 0;
+  $("project-next").disabled = projectPage >= pageCount - 1;
+}
+
+function renderProjectTiles() {
   const list = $("project-tiles");
   list.replaceChildren();
-  if (!projects.length) {
+  if (!projectsCache.length) {
     const n = document.createElement("div");
     n.className = "empty-note";
     n.textContent = "No projects yet. Create one to begin.";
     list.appendChild(n);
+    renderProjectSearchSuggest();
+    renderProjectPager(0, 0);
     if (!selectedProject) setMissionView("home");
     return;
   }
-  for (const p of projects) {
-    const tile = document.createElement("div");
-    tile.className = "project-tile";
-    if (p.slug === activeProject && orchestrating) tile.classList.add("active");
-    const c = p.counts || {};
-    tile.innerHTML = `
-      <div class="pc-title">${esc(p.title)}</div>
-      <div class="pc-slug mono">${esc(p.slug)}</div>
-      ${p.workspace_path ? `<div class="pc-ws mono muted">${esc(p.workspace_path)}</div>` : ""}
-      <div class="pc-counts">
-        <span class="dot-todo"></span>${c["Todo"] || 0}
-        <span class="dot-prog"></span>${c["In Progress"] || 0}
-        <span class="dot-done"></span>${c["Completed"] || 0}
-      </div>
-      <div class="pc-actions">
-        <button class="link pc-edit" type="button">Edit</button>
-        <button class="link pc-del" type="button">Delete</button>
-      </div>`;
-    tile.addEventListener("click", (ev) => {
-      if (ev.target.closest(".pc-actions")) return;
-      selectProject(p.slug);
-    });
-    tile.querySelector(".pc-edit").addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      startEditProject(p.slug);
-    });
-    tile.querySelector(".pc-del").addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      deleteProject(p.slug);
-    });
-    list.appendChild(tile);
+  const visible = filteredProjects();
+  const q = projectSearchQuery.trim();
+  if (!visible.length) {
+    const n = document.createElement("div");
+    n.className = "empty-note";
+    n.textContent = q.length >= PROJECT_SEARCH_MIN
+      ? "No projects match your search."
+      : "No projects yet. Create one to begin.";
+    list.appendChild(n);
+    renderProjectSearchSuggest();
+    renderProjectPager(0, 0);
+    return;
   }
-  syncMissionView();
+  const pageCount = Math.max(1, Math.ceil(visible.length / PROJECTS_PER_PAGE));
+  if (projectPage > pageCount - 1) projectPage = pageCount - 1;
+  if (projectPage < 0) projectPage = 0;
+  const start = projectPage * PROJECTS_PER_PAGE;
+  for (const p of visible.slice(start, start + PROJECTS_PER_PAGE)) {
+    list.appendChild(buildProjectTile(p));
+  }
+  renderProjectPager(visible.length, pageCount);
+  renderProjectSearchSuggest();
+}
+
+function clearProjectSearch() {
+  projectSearchQuery = "";
+  projectPage = 0;
+  const input = $("project-search");
+  if (input) input.value = "";
+  renderProjectSearchSuggest();
+}
+
+function onProjectSearchInput() {
+  projectSearchQuery = ($("project-search")?.value || "").trimStart();
+  projectPage = 0;
+  renderProjectTiles();
 }
 
 function selectProject(slug, preferredIteration) {
@@ -560,6 +671,7 @@ function updateIterationActions() {
   const hasTesting = !!(iter && (iter.testing_instructions || "").trim());
   $("toggle-testing-instructions").disabled = !iter || locked || iter.state !== "planning";
   $("toggle-testing-instructions").classList.toggle("has-instructions", hasTesting);
+  $("rerun-iteration").disabled = !(iter && !locked && iter.state === "completed");
   renderTestingInstructions();
   const badge = $("iteration-state");
   if (!iter) {
@@ -1999,13 +2111,35 @@ $("toggle-new-project").addEventListener("click", () => {
   openProjectModal();
 });
 
+$("project-search")?.addEventListener("input", onProjectSearchInput);
+$("project-search")?.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    clearProjectSearch();
+    renderProjectTiles();
+    e.target.blur();
+  }
+});
+$("project-prev")?.addEventListener("click", () => {
+  if (projectPage > 0) {
+    projectPage--;
+    renderProjectTiles();
+  }
+});
+$("project-next")?.addEventListener("click", () => {
+  const pageCount = Math.max(1, Math.ceil(filteredProjects().length / PROJECTS_PER_PAGE));
+  if (projectPage < pageCount - 1) {
+    projectPage++;
+    renderProjectTiles();
+  }
+});
+document.addEventListener("click", (e) => {
+  const wrap = document.querySelector(".project-search-wrap");
+  if (wrap && !wrap.contains(e.target)) {
+    $("project-search-suggest")?.classList.add("hidden");
+  }
+});
+
 $("mission-back").addEventListener("click", showMissionHome);
-$("mission-edit-project").addEventListener("click", () => {
-  if (selectedProject) startEditProject(selectedProject);
-});
-$("mission-delete-project").addEventListener("click", () => {
-  if (selectedProject) deleteProject(selectedProject);
-});
 
 $("np-cancel").addEventListener("click", () => {
   resetProjectForm();
@@ -2147,6 +2281,36 @@ $("testing-instructions-form").addEventListener("submit", async (e) => {
   }
 });
 $("toggle-new-iteration").addEventListener("click", openIterationModal);
+
+async function rerunIteration() {
+  if (!selectedProject || !selectedIteration) return;
+  const iter = currentIteration();
+  if (!iter || iter.state !== "completed") return;
+  const ok = await confirmModal({
+    title: "Run this iteration again?",
+    message:
+      "Every task starts over from the beginning — back to Todo, then agents run through the sprint in the same plan order as before. QA runs again once all build work finishes.",
+    confirmLabel: "Run from the start",
+  });
+  if (!ok) return;
+  const btn = $("rerun-iteration");
+  if (btn) btn.disabled = true;
+  try {
+    await api(
+      `/api/v1/projects/${encodeURIComponent(selectedProject)}/iterations/${encodeURIComponent(selectedIteration)}/rerun`,
+      { method: "POST" }
+    );
+    await loadIterations(selectedIteration);
+    await loadBoard();
+    await loadProjects();
+    poll();
+  } catch (e) {
+    await alertModal({ title: "Could not run iteration again", message: e.message });
+    updateIterationActions();
+  }
+}
+
+$("rerun-iteration")?.addEventListener("click", rerunIteration);
 $("iter-cancel").addEventListener("click", closeIterationModal);
 $("iteration-modal").addEventListener("click", (e) => {
   if (e.target === $("iteration-modal")) closeIterationModal();

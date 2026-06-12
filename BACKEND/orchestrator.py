@@ -225,6 +225,44 @@ class Orchestrator:
         gen = self._orchestrate_generation if generation is None else generation
         self._events.put(("orchestrate", project_slug, iteration_id, gen))
 
+    def rerun_iteration(self, project_slug: str, iteration_id: str) -> None:
+        """After QA completes an iteration, reset build tasks to Todo and orchestrate again."""
+        self._require_model_setup()
+        if self.orchestrating or self.planning:
+            raise ValueError("stop the current run before re-running this iteration")
+        iteration = self.db.get_iteration(iteration_id)
+        if not iteration or iteration.get("project_slug") != project_slug:
+            raise ValueError("iteration not found")
+        from db import ITERATION_COMPLETED, ITERATION_PLANNING, STATE_CANCELLED, TASK_KIND_TASK, board_column
+
+        if iteration.get("state") != ITERATION_COMPLETED:
+            raise ValueError("re-run is only available after QA completes the iteration")
+        build_tasks = self.db.iteration_build_tasks(iteration_id)
+        if not build_tasks:
+            raise ValueError("no tasks in this iteration")
+        for task in build_tasks:
+            col = board_column(task.get("state"))
+            if col not in {STATE_COMPLETED, STATE_CANCELLED}:
+                raise ValueError("all tasks must be completed before re-run")
+        reset_count = self.db.reset_iteration_tasks_for_rerun(iteration_id)
+        if reset_count == 0:
+            raise ValueError("no tasks to re-run")
+        for task in build_tasks:
+            if (task.get("kind") or TASK_KIND_TASK) != TASK_KIND_TASK:
+                continue
+            if board_column(task.get("state")) == STATE_CANCELLED:
+                continue
+            task_id = task["id"]
+            self.state.completed.discard(task_id)
+            self.state.claimed.discard(task_id)
+            self._cancel_retry(task_id)
+        self.db.set_iteration_state(iteration_id, ITERATION_PLANNING)
+        log.info(
+            "iteration re-run %s",
+            kv(project=project_slug, iteration=iteration_id, tasks=reset_count),
+        )
+        self.orchestrate(project_slug, iteration_id)
+
     def plan_and_orchestrate(self, project_slug: str, iteration_id: str) -> None:
         self._require_model_setup()
         self._validate_orchestrate_target(project_slug, iteration_id)

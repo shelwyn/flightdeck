@@ -202,6 +202,29 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.45; }
 /* ============================ MISSION CONTROL ============================ */
 .pane-grid { display: grid; grid-template-columns: 320px 1fr; gap: 22px; align-items: start; }
 
+/* Mission Control — projects home */
+#mission-home {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 56px - 44px);
+  box-sizing: border-box;
+}
+#mission-home .mission-home-head,
+#mission-home .mission-home-toolbar {
+  flex-shrink: 0;
+}
+#mission-home .project-tiles {
+  flex: 1 1 auto;
+  align-content: start;
+}
+#mission-home #project-pager {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-soft);
+  justify-content: center;
+}
+
 .mission-home-head {
   display: flex;
   align-items: center;
@@ -215,6 +238,57 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.45; }
   font-weight: 650;
   color: var(--text);
   letter-spacing: .01em;
+}
+.mission-home-toolbar {
+  margin-bottom: 18px;
+}
+.project-search-wrap {
+  position: relative;
+  max-width: 420px;
+}
+.project-search-input {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+.project-search-suggest {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.project-search-suggest.hidden { display: none; }
+.project-search-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.project-search-item:hover,
+.project-search-item:focus {
+  background: var(--panel-2);
+  color: var(--accent);
+  filter: none;
+  outline: none;
+}
+.project-search-item .psi-slug {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
 }
 .project-tiles {
   display: grid;
@@ -242,7 +316,6 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.45; }
   padding: 16px;
 }
 .mission-project-head { margin-bottom: 12px; }
-.mission-project-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
 .sidebar, .content { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
 

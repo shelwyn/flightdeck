@@ -222,6 +222,21 @@ def create_app(orchestrator) -> Flask:
             return jsonify({"error": {"code": "bad_request", "message": str(exc)}}), 400
         return jsonify(updated)
 
+    @app.post("/api/v1/projects/<slug>/iterations/<iteration_id>/rerun")
+    def rerun_iteration(slug: str, iteration_id: str):
+        if not orchestrator.db.get_project(slug):
+            return jsonify({"error": {"code": "project_not_found", "message": slug}}), 404
+        iteration = orchestrator.db.get_iteration(iteration_id)
+        if not iteration or iteration.get("project_slug") != slug:
+            return jsonify({"error": {"code": "iteration_not_found", "message": iteration_id}}), 404
+        try:
+            orchestrator.rerun_iteration(slug, iteration_id)
+        except ValueError as exc:
+            return jsonify({"error": {"code": "bad_request", "message": str(exc)}}), 400
+        return jsonify(
+            {"orchestrating": True, "project_slug": slug, "iteration_id": iteration_id}
+        ), 202
+
     @app.post("/api/v1/projects/<slug>/tasks")
     def create_task(slug: str):
         body = request.get_json(silent=True) or {}

@@ -375,7 +375,7 @@ class Db:
 
     def list_projects(self) -> list[dict]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM projects ORDER BY created_at").fetchall()
+            rows = conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()
             projects = []
             for row in rows:
                 counts = {s: 0 for s in BOARD_STATES}
@@ -461,6 +461,32 @@ class Db:
                 "UPDATE iterations SET state = ?, updated_at = ? WHERE id = ?",
                 (state, _now(), iteration_id),
             )
+
+    def reset_iteration_tasks_for_rerun(self, iteration_id: str) -> int:
+        """Move non-cancelled build tasks back to Todo for another orchestration pass."""
+        reset_from = {STATE_COMPLETED, STATE_IN_PROGRESS}
+        count = 0
+        now = _now()
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, state, kind FROM tasks WHERE iteration_id = ?",
+                (iteration_id,),
+            ).fetchall()
+            for row in rows:
+                kind = (row["kind"] or TASK_KIND_TASK).strip().lower()
+                if kind != TASK_KIND_TASK:
+                    continue
+                col = board_column(row["state"])
+                if col == STATE_CANCELLED or col == STATE_TODO:
+                    continue
+                if col not in reset_from:
+                    continue
+                conn.execute(
+                    "UPDATE tasks SET state = ?, updated_at = ? WHERE id = ?",
+                    (STATE_TODO, now, row["id"]),
+                )
+                count += 1
+        return count
 
     def update_iteration(
         self,
